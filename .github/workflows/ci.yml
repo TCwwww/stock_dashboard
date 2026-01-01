@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-check:
+    name: Python syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f macd-grades/requirements.txt ]; then pip install -r macd-grades/requirements.txt; fi
+      - name: Byte-compile sources
+        run: |
+          python -m compileall -q macd-grades || true
+
+  ui-build:
+    name: UI build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare dummy data if missing
+        run: |
+          mkdir -p macd-grades/meta macd-grades/data || true
+          if [ ! -f macd-grades/meta/last_updated.json ]; then echo '{"last_updated":"1970-01-01"}' > macd-grades/meta/last_updated.json; fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - name: Install deps
+        working-directory: ui
+        run: npm ci
+      - name: Build
+        working-directory: ui
+        run: npm run build
