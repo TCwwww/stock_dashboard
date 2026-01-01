@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+.env
+.venv/
+venv/
+
+# Node
+node_modules/
+ui/node_modules/
+
+# Project-specific (macd-grades)
+macd-grades/.venv/
+macd-grades/data/
+

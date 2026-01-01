@@ -1,0 +1,214 @@
+/* Trading UI theme */
+:root{
+  --bg:#0b1220;           /* page */
+  --panel:#0f1a2b;        /* cards */
+  --panel2:#0c1626;       /* nested */
+  --text:#e6edf6;
+  --muted:#93a4bf;
+  --border:rgba(255,255,255,.08);
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+
+  --green:#16c784; /* up */
+  --red:#ea3943;   /* down */
+  --amber:#f3ba2f;
+  --blue:#2f7df6;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background: radial-gradient(1200px 800px at 30% -10%, rgba(47,125,246,.18), transparent 55%),
+              radial-gradient(900px 600px at 90% 0%, rgba(22,199,132,.12), transparent 45%),
+              var(--bg);
+  color:var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+a{ color:inherit; text-decoration:none; }
+a:hover{ opacity:.9; }
+
+.container{
+  max-width:1200px;
+  margin:0 auto;
+  padding:20px;
+}
+
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:10;
+  backdrop-filter: blur(10px);
+  background: rgba(11,18,32,.75);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 20px;
+  max-width:1200px;
+  margin:0 auto;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:700;
+  letter-spacing:.2px;
+}
+
+.nav{
+  display:flex;
+  gap:10px;
+  color:var(--muted);
+  font-size:14px;
+}
+.nav a{
+  padding:6px 10px;
+  border:1px solid transparent;
+  border-radius:10px;
+}
+.nav a.active{
+  color:var(--text);
+  border-color: var(--border);
+  background: rgba(255,255,255,.03);
+}
+
+.scanner-layout{ display:grid; grid-template-columns: 1fr 320px; gap:16px; }
+@media (max-width: 980px){ .scanner-layout{ grid-template-columns: 1fr; } }
+
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 55%), var(--panel);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow: var(--shadow);
+  padding:12px;
+}
+
+.card h2{
+  margin:0 0 10px 0;
+  font-size:14px;
+  color:var(--muted);
+  font-weight:600;
+  letter-spacing:.3px;
+  text-transform:uppercase;
+}
+
+.kpis{
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap:10px;
+}
+.kpi{
+  background: var(--panel2);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:12px;
+}
+.kpi .label{ color:var(--muted); font-size:12px; }
+.kpi .value{
+  font-size:20px;
+  font-weight:700;
+  margin-top:6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table{
+  width:100%;
+  border-collapse: collapse;
+  overflow:hidden;
+  border-radius:14px;
+  border:1px solid var(--border);
+}
+.table th, .table td{
+  padding:6px 8px;
+  border-bottom:1px solid var(--border);
+  font-size:13px;
+}
+.th-sort{ display:flex; align-items:center; gap:6px; }
+.sort{ display:inline-flex; gap:4px; }
+.sort-btn{ cursor:pointer; padding:0 4px; height:18px; line-height:16px; font-size:12px; color:var(--muted); background: transparent; border:1px solid var(--border); border-radius:4px; }
+.sort-btn:hover{ color: var(--text); border-color: rgba(255,255,255,.15); }
+.table th{
+  text-align:left;
+  color:var(--muted);
+  font-weight:600;
+  background: rgba(255,255,255,.02);
+}
+.table tr:hover td{ background: rgba(255,255,255,.02); }
+
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:34px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:.2px;
+}
+.badge.A{ background: rgba(22,199,132,.14); color: #a6f3d3; border-color: rgba(22,199,132,.25); }
+.badge.B{ background: rgba(47,125,246,.14); color: #b9d3ff; border-color: rgba(47,125,246,.25); }
+.badge.C{ background: rgba(243,186,47,.14); color: #ffe1a6; border-color: rgba(243,186,47,.25); }
+.badge.D{ background: rgba(234,57,67,.14); color: #ffb7bd; border-color: rgba(234,57,67,.25); }
+
+/* Heatmap grade boxes */
+.grade-box{
+  width:38px; height:28px; border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:12px; border:1px solid var(--border);
+}
+.grade-box.A{ background: rgba(22,199,132,.14); color: #a6f3d3; border-color: rgba(22,199,132,.25); }
+.grade-box.B{ background: rgba(47,125,246,.14); color: #b9d3ff; border-color: rgba(47,125,246,.25); }
+.grade-box.C{ background: rgba(243,186,47,.14); color: #ffe1a6; border-color: rgba(243,186,47,.25); }
+.grade-box.D{ background: rgba(234,57,67,.14); color: #ffb7bd; border-color: rgba(234,57,67,.25); }
+.grade-box.NA{ background: rgba(107,114,128,.18); color:#cbd5e1; }
+
+/* Simple distribution bars */
+.bars{ display:grid; gap:8px; }
+.bar-row{ display:flex; align-items:center; gap:8px; }
+.bar-track{ flex:1; height:8px; border-radius:4px; background: rgba(255,255,255,.06); overflow:hidden; }
+.bar-fill{ height:100%; border-radius:4px; }
+.bar-A{ background: rgba(22,199,132,.7); }
+.bar-B{ background: rgba(47,125,246,.7); }
+.bar-C{ background: rgba(243,186,47,.8); }
+.bar-D{ background: rgba(234,57,67,.8); }
+
+/* Stacked percentage bars */
+.stacked-track{ display:flex; height:10px; border-radius:6px; overflow:hidden; background: rgba(255,255,255,.06); }
+.stacked-track .bar-fill{ border-radius:0; }
+.stacked-track .bar-fill:first-child{ border-top-left-radius:6px; border-bottom-left-radius:6px; }
+.stacked-track .bar-fill:last-child{ border-top-right-radius:6px; border-bottom-right-radius:6px; }
+
+/* Distribution grid */
+.dist-grid{ display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+.filters{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+.input, .select{
+  background: var(--panel2);
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:12px;
+  padding:10px 12px;
+  font-size:13px;
+}
+.input::placeholder{ color: rgba(147,164,191,.7); }
+
+.muted { color: var(--muted); }
+.error { color: #ffb7bd; }
