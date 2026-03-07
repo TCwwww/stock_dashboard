@@ -34,11 +34,17 @@ export default function Overview() {
     try { return JSON.parse(localStorage.getItem("watchlist") || "[]") } catch { return [] }
   });
   const addToWatchlist = () => {
-    const t = prompt("Add symbol (Yahoo format, e.g. 9988.HK or AAPL):");
+    const t = prompt("Add symbol or universe (e.g. AAPL, 9988.HK, DJI):");
     if (!t) return;
-    const sym = t.trim().toUpperCase();
-    if (!sym) return;
-    const next = Array.from(new Set([...(watchlist||[]), sym]));
+    const input = t.trim().toUpperCase();
+    if (!input) return;
+
+    // If input matches a known universe key, expand to its tickers
+    const uni = universes || {};
+    const maybeList = Array.isArray(uni[input]) ? uni[input] : null;
+
+    const toAdd = maybeList && maybeList.length ? maybeList.map(String) : [input];
+    const next = Array.from(new Set([...(Array.isArray(watchlist) ? watchlist : []), ...toAdd]));
     setWatchlist(next);
     localStorage.setItem("watchlist", JSON.stringify(next));
   };
@@ -128,7 +134,15 @@ export default function Overview() {
       const currency = market?.currency ?? null;
       const mcapLocal = (typeof market?.mcap_local === 'number') ? market.mcap_local : null;
       const mcapUSD = (typeof market?.mcap_usd === 'number') ? market.mcap_usd : null;
-      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw, currency, mcapLocal, mcapUSD };
+      const rs = intervals?.rs || null;
+      const rsPct13 = (typeof rs?.pct?.w13 === 'number') ? rs.pct.w13 : null;
+      const rsPct4 = (typeof rs?.pct?.w4 === 'number') ? rs.pct.w4 : null;
+      const rsPct26 = (typeof rs?.pct?.w26 === 'number') ? rs.pct.w26 : null;
+      const rsSlope4 = (typeof rs?.slope?.w4 === 'number') ? rs.slope.w4 : null;
+      const rsSlope13 = (typeof rs?.slope?.w13 === 'number') ? rs.slope.w13 : null;
+      const rsSlope26 = (typeof rs?.slope?.w26 === 'number') ? rs.slope.w26 : null;
+      const rsUni = typeof rs?.universe === 'string' ? rs.universe : null;
+      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw, currency, mcapLocal, mcapUSD, rsPct13, rsPct4, rsPct26, rsSlope4, rsSlope13, rsSlope26, rsUni };
     });
 
     // Include watchlist items even if not generated (mark as missing)
@@ -187,6 +201,7 @@ export default function Overview() {
           if (s.key === 'SYM') cmp = a.sym.localeCompare(b.sym);
           else if (s.key === 'StrikeW') cmp = strikeRank(a.Ww) - strikeRank(b.Ww);
           else if (s.key === 'MCAP') cmp = numRank(a.mcapUSD) - numRank(b.mcapUSD);
+          else if (s.key === 'RS13') cmp = numRank(a.rsPct13) - numRank(b.rsPct13);
           else if (s.key === 'D' || s.key === 'W' || s.key === 'M') cmp = gradeRank(a[s.key]) - gradeRank(b[s.key]);
           if (cmp !== 0) return s.dir === 'asc' ? cmp : -cmp;
         }
@@ -382,6 +397,15 @@ export default function Overview() {
                 </th>
                 <th className="mono">
                   <div className="th-sort">
+                    <span>RS 13w</span>
+                    <span className="sort">
+                      <button className="sort-btn" title="RS 13w ↑ (percentile)" onClick={()=>pushSort('RS13','asc')}>▲</button>
+                      <button className="sort-btn" title="RS 13w ↓ (percentile)" onClick={()=>pushSort('RS13','desc')}>▼</button>
+                    </span>
+                  </div>
+                </th>
+                <th className="mono">
+                  <div className="th-sort">
                     <span>Mkt Cap</span>
                     <span className="sort">
                       <button className="sort-btn" title="Mkt Cap ↑ (USD)" onClick={()=>pushSort('MCAP','asc')}>▲</button>
@@ -431,6 +455,9 @@ export default function Overview() {
               {rows.map((r) => (
                 <tr key={r.sym}>
                   <td className="mono"><Link to={`/s/${encodeURIComponent(r.sym)}`}>{r.sym}</Link></td>
+                  <td className="mono" title={r.rsPct13 != null ? `RS pct (4/13/26w): ${Math.round(r.rsPct4 ?? NaN)} / ${Math.round(r.rsPct13)} / ${Math.round(r.rsPct26 ?? NaN)}` : ''}>
+                    {r.rsPct13 != null ? `${Math.round(r.rsPct13)}p` : '–'}
+                  </td>
                   <td className="mono" title={r.mcapUSD != null ? `USD ${r.mcapUSD.toLocaleString()}` : ''}>
                     {formatCurrencyShort(r.mcapLocal, r.currency)}
                   </td>
