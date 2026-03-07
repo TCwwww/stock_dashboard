@@ -1,61 +1,67 @@
-# Stock Dashboard
+# MACD Grades Dashboard — How to Use
 
-Monorepo for a MACD-based data generator (Python) and a React UI (Vite) to visualize grades across symbols and intervals.
+## Prerequisites
+- Python 3.11+ (3.12 recommended)
+- Node.js 20+
+- npm
 
-## Project Structure
-- `macd-grades/`: Python data pipeline
-  - `generate_data.py`: Downloads Yahoo data, computes MACD (3,17,3) for D/W/M (W-FRI, ME), grades A–D, writes JSON
-  - `meta/symbols.json`: Input config (e.g. `{ "symbols": ["9988.HK", "TSM"], "history_years": 10 }`)
-  - `data/`: Output directory (ignored by git). Per symbol: `D.json`, `W.json`, `M.json`; plus `meta/last_updated.json`
-  - `requirements.txt`: Python dependencies
-- `ui/`: React app (Vite) that reads published JSON under `ui/public/macd-grades/`
+## 1) Generate data (backend)
+From repo root:
 
-## Setup
-### Python (generator)
 ```bash
 python -m venv macd-grades/.venv
-source macd-grades/.venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r macd-grades/requirements.txt
+macd-grades/.venv/bin/python -m pip install --upgrade pip
+macd-grades/.venv/bin/pip install -r macd-grades/requirements.txt
+
+macd-grades/.venv/bin/python macd-grades/generate_data.py
 ```
 
-### Generate Data
-```bash
-# edit symbols
-$EDITOR macd-grades/meta/symbols.json
+Outputs:
+- `macd-grades/data/<SYMBOL>/{D,W,M}.json`
+- `macd-grades/meta/last_updated.json`
 
-# generate
-python macd-grades/generate_data.py
-```
-Outputs land in `macd-grades/data/<SYMBOL>/{D,W,M}.json` and `macd-grades/meta/last_updated.json`.
+The script prints current grades and since-dates for a quick sanity check.
 
-### UI (development)
+## 2) Run the UI locally (frontend)
+From repo root:
+
 ```bash
 cd ui
-npm ci
+npm install
 npm run dev
 ```
-Note: `npm run build` runs a prebuild script that copies `macd-grades/{meta,data}` into `ui/public/macd-grades/`. Make sure you’ve generated data first.
 
-## Conventions
-- Python 3.10+ with type hints; 4-space indentation
-- Resampling: weekly `W-FRI`, monthly `ME` (recompute MACD per interval)
-- Deterministic grading logic (equality: `macd==0` is negative; `macd==signal` is not above)
-- Do not commit generated JSON under `macd-grades/data/`
+Open the shown URL. Overview should load; click a symbol for detail. If it 404s, ensure you’ve generated data first.
 
-## CI
-GitHub Actions runs a minimal syntax/build check:
-- Python: install deps and byte-compile sources
-- UI: install deps and build (with dummy data if generator output is absent)
+## 3) Build the UI
+From repo root:
 
-## Quick Commands
 ```bash
-# Run generator
-python macd-grades/generate_data.py
-
-# Start UI
-(cd ui && npm run dev)
-
-# Build UI
-(cd ui && npm run build)
+cd ui
+npm run build
 ```
+
+This copies `macd-grades/{meta,data}` into `ui/public/macd-grades` and writes a production build to `ui/dist`.
+
+## 4) Deploy to GitHub Pages (Option B: CI generates data)
+- In GitHub: Settings → Pages → Source: GitHub Actions
+- Push to main. Workflow “Deploy Pages (Generate Data)” will:
+  - Set up Python, install deps, run `macd-grades/generate_data.py`
+  - Build the UI and deploy `ui/dist`
+- Your site: `https://<username>.github.io/<repo-name>/`
+
+### Alternative (Option A: commit JSON)
+- Commit `macd-grades/data/**` and `macd-grades/meta/**` to the repo, then build and deploy. Simpler, but adds JSON churn to history.
+
+## Troubleshooting
+- Pip/network issues: upgrade pip, retry, or increase timeout.
+- Yahoo rate limits: rerun later; CI may occasionally fail.
+- Fetch errors in UI: ensure data exists (run generator) and rebuild.
+
+## Venv sanity check
+```bash
+macd-grades/.venv/bin/python -c "import sys; print(sys.executable)"
+macd-grades/.venv/bin/pip --version
+```
+Both should point inside `macd-grades/.venv`.
+

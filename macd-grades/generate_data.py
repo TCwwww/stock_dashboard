@@ -11,6 +11,7 @@ from typing import Literal, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import importlib.util
 
 Interval = Literal["D", "W", "M"]
 
@@ -34,6 +35,16 @@ def macd(close: pd.Series, p: MacdParams) -> pd.DataFrame:
     signal_line = ema(macd_line, p.signal)
     hist = macd_line - signal_line
     return pd.DataFrame({"macd": macd_line, "signal": signal_line, "hist": hist})
+
+
+def _fmt_dur(seconds: float) -> str:
+    seconds = int(max(0, round(seconds)))
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h:
+        return f"{h:d}:{m:02d}:{s:02d}"
+    return f"{m:d}:{s:02d}"
 
 
 def grade_row(macd_val: float, signal_val: float) -> str:
@@ -94,6 +105,7 @@ def df_to_records(df: pd.DataFrame) -> list[dict]:
         records.append(
             {
                 "t": t_str,
+                "close": float(row["Close"]),
                 "macd": float(row["macd"]),
                 "signal": float(row["signal"]),
                 "hist": float(row["hist"]),
@@ -175,6 +187,54 @@ def write_json(path: Path, obj) -> None:
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
 
 
+def _infer_currency_from_symbol(sym: str) -> str:
+    s = sym.upper()
+    if s.endswith(".HK"):
+        return "HKD"
+    if s.endswith(".L"):
+        return "GBP"
+    if s.endswith(".TO") or s.endswith(".V"):
+        return "CAD"
+    if s.endswith(".SI"):
+        return "SGD"
+    if s.endswith(".AX"):
+        return "AUD"
+    return "USD"
+
+
+def _fetch_fx_to_usd(cur: str, cache: dict[str, float]) -> float:
+    cur = (cur or "").upper()
+    if not cur or cur == "USD":
+        return 1.0
+    if cur in cache:
+        return cache[cur]
+    # Try direct pair CURUSD=X
+    pair = f"{cur}USD=X"
+    try:
+        df = yf.download(pair, period="7d", interval="1d", progress=False, auto_adjust=False)
+        if df is not None and not df.empty and "Close" in df.columns:
+            rate = float(df["Close"].dropna().iloc[-1])
+            if rate and rate > 0:
+                cache[cur] = rate
+                return rate
+    except Exception:
+        pass
+    # Try inverse USD{cur}=X then invert
+    inv = f"USD{cur}=X"
+    try:
+        df = yf.download(inv, period="7d", interval="1d", progress=False, auto_adjust=False)
+        if df is not None and not df.empty and "Close" in df.columns:
+            rate = float(df["Close"].dropna().iloc[-1])
+            if rate and rate > 0:
+                cache[cur] = 1.0 / rate
+                return cache[cur]
+    except Exception:
+        pass
+    # Fallback
+    cache[cur] = 1.0
+    return 1.0
+
+
 def main() -> None:
     root = Path(__file__).resolve().parent
     meta_path = root / "meta" / "symbols.json"
@@ -220,6 +280,12 @@ def main() -> None:
 
     p = MacdParams(3, 17, 3)
 
+    # Progress header
+    print("[init] MACD params:", p)
+    print(f"[init] History: {years}y · requested: {requested} · capped_to: {len(symbols)}")
+    if include_universes:
+        print(f"[init] include_universes: {', '.join(include_universes)}")
+
     summary = {
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
         "macd_params": {"fast": p.fast, "slow": p.slow, "signal": p.signal},
@@ -231,22 +297,43 @@ def main() -> None:
     }
 
     failed: list[str] = []
+    fx_cache: dict[str, float] = {}
 
-    for sym in symbols:
-        print(f"[+] Processing {sym}")
+    t0 = time.time()
+    completed = 0
+    total = len(symbols)
+
+    for idx, sym in enumerate(symbols, start=1):
+        print(f"[+] [{idx}/{total}] Processing {sym}", flush=True)
+        sym_t0 = time.time()
         try:
             df_daily = fetch_daily_close(sym, years=years)
         except Exception:
             failed.append(sym)
+            sym_dt = time.time() - sym_t0
+            completed += 1
+            elapsed = time.time() - t0
+            avg = elapsed / max(1, completed)
+            eta = avg * (total - completed)
+            print(
+                f"    [-] {sym} FAILED in {_fmt_dur(sym_dt)} · elapsed {_fmt_dur(elapsed)} · eta {_fmt_dur(eta)}",
+                flush=True,
+            )
             continue
 
         sym_out = {}
+        last_close_for_market: Optional[float] = None
 
         for interval in ("D", "W", "M"):
             out_df = compute_interval(df_daily, interval, p)
 
             # Save full history
             records = df_to_records(out_df)
+            if interval == "D" and records:
+                try:
+                    last_close_for_market = float(records[-1]["close"])
+                except Exception:
+                    last_close_for_market = None
 
             # Also compute current grade and since when it has been that grade
             if records:
@@ -271,6 +358,7 @@ def main() -> None:
                     "since": current_since,
                     "strike": current_strike,
                     "t": records[-1]["t"] if records else None,
+                    "close": records[-1]["close"] if records else None,
                     "macd": records[-1]["macd"] if records else None,
                     "signal": records[-1]["signal"] if records else None,
                     "hist": records[-1]["hist"] if records else None,
@@ -288,16 +376,98 @@ def main() -> None:
 
         summary["symbols"][sym] = sym_out
 
+        # Market cap enrichment (best-effort)
+        market_block = None
+        try:
+            tkr = yf.Ticker(sym)
+            cur = None
+            shares = None
+            try:
+                fi = tkr.fast_info  # type: ignore[attr-defined]
+                if isinstance(fi, dict):
+                    cur = fi.get("currency") or fi.get("Currency")
+                    shares = fi.get("shares_outstanding") or fi.get("sharesOutstanding")
+            except Exception:
+                pass
+            if shares is None or cur is None:
+                try:
+                    info = tkr.info  # type: ignore[attr-defined]
+                    cur = cur or info.get("currency")
+                    shares = shares or info.get("sharesOutstanding")
+                except Exception:
+                    pass
+            cur = cur or _infer_currency_from_symbol(sym)
+            fx = _fetch_fx_to_usd(cur, fx_cache)
+            if isinstance(shares, (int, float)) and shares and last_close_for_market:
+                mcap_local = float(last_close_for_market) * float(shares)
+                mcap_usd = mcap_local * float(fx)
+            else:
+                mcap_local = None
+                mcap_usd = None
+            market_block = {
+                "currency": cur,
+                "shares_outstanding": int(shares) if isinstance(shares, (int,)) else (int(shares) if isinstance(shares, float) else None),
+                "last_close": float(last_close_for_market) if last_close_for_market is not None else None,
+                "mcap_local": float(mcap_local) if mcap_local is not None else None,
+                "mcap_usd": float(mcap_usd) if mcap_usd is not None else None,
+                "fx_to_usd": float(fx) if isinstance(fx, (int, float)) else None,
+            }
+        except Exception:
+            market_block = None
+        if market_block is not None:
+            summary["symbols"][sym]["market"] = market_block
+
+        # Progress accounting
+        sym_dt = time.time() - sym_t0
+        completed += 1
+        elapsed = time.time() - t0
+        avg = elapsed / max(1, completed)
+        eta = avg * (total - completed)
+        try:
+            d_rec = sym_out.get("D", {}).get("records", 0)
+            w_rec = sym_out.get("W", {}).get("records", 0)
+            m_rec = sym_out.get("M", {}).get("records", 0)
+        except Exception:
+            d_rec = w_rec = m_rec = 0
+        print(
+            f"    [✓] Done {sym} in {_fmt_dur(sym_dt)} · recs D/W/M: {d_rec}/{w_rec}/{m_rec} · elapsed {_fmt_dur(elapsed)} · eta {_fmt_dur(eta)}",
+            flush=True,
+        )
+
     summary["failed_symbols"] = failed
     write_json(meta_out, summary)
 
     # Quick sanity print for eyeballing current grades
     print("\nCurrent grades (grade since YYYY-MM-DD):")
     for sym, intervals in summary["symbols"].items():
-        for interval, stats in intervals.items():
-            print(f" - {sym} {interval}: {stats['current_grade']} since {stats['current_since']}")
+        for interval in ("D", "W", "M"):
+            stats = intervals.get(interval)
+            if not isinstance(stats, dict):
+                continue
+            print(f" - {sym} {interval}: {stats.get('current_grade')} since {stats.get('current_since')}")
 
-    print("\n[✓] Done. Wrote data/<symbol>/{D,W,M}.json and meta/last_updated.json")
+    total_elapsed = time.time() - t0
+    # Escape braces to show literal {D,W,M} in f-string
+    print(
+        f"\n[✓] Done {completed}/{total} symbols in {_fmt_dur(total_elapsed)} (failed: {len(failed)}). "
+        f"Wrote data/<symbol>/{{D,W,M}}.json and meta/last_updated.json",
+        flush=True,
+    )
+
+    # Extend pipeline: generate economics (HKD M1/M2/M3)
+    try:
+        print("[+] Generating economics (HKD M1/M2/M3)…")
+        econ_path = root / "generate_economics.py"
+        spec = importlib.util.spec_from_file_location("generate_economics", str(econ_path))
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Unable to load generate_economics module")
+        econ_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(econ_mod)  # type: ignore[attr-defined]
+        econ_mod.main()  # type: ignore[attr-defined]
+        print("[✓] Economics generated.")
+    except Exception as e:
+        # Do not fail the whole pipeline; show a clear warning instead.
+        print(f"[warn] Economics generation failed: {e}")
 
 
 if __name__ == "__main__":

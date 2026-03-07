@@ -14,5 +14,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     base,
+    server: {
+      proxy: {
+        // Local dev API to trigger Python generator
+        '/api': 'http://localhost:8787',
+      },
+    },
   };
 });

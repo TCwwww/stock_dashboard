@@ -1,1 +1,1 @@
-{"symbol":"0300.HK","interval":"M","records":[],"current":{"grade":null,"since":null,"strike":null,"t":null,"macd":null,"signal":null,"hist":null}}
+{"symbol":"0300.HK","interval":"M","records":[{"t":"2026-03-31","close":86.05000305175781,"macd":13.872066647319116,"signal":15.09373063067796,"hist":-1.2216639833588445,"grade":"B"}],"current":{"grade":"B","since":"2026-03-31","strike":1,"t":"2026-03-31","close":86.05000305175781,"macd":13.872066647319116,"signal":15.09373063067796,"hist":-1.2216639833588445}}

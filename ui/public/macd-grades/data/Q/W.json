@@ -1,1 +1,1 @@
-{"symbol":"Q","interval":"W","records":[],"current":{"grade":null,"since":null,"strike":null,"t":null,"macd":null,"signal":null,"hist":null}}
+{"symbol":"Q","interval":"W","records":[{"t":"2026-03-06","close":113.9800033569336,"macd":15.31576609210407,"signal":15.735355929666525,"hist":-0.41958983756245516,"grade":"B"}],"current":{"grade":"B","since":"2026-03-06","strike":1,"t":"2026-03-06","close":113.9800033569336,"macd":15.31576609210407,"signal":15.735355929666525,"hist":-0.41958983756245516}}

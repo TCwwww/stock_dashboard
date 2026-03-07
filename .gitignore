@@ -14,8 +14,11 @@ venv/
 # Node
 node_modules/
 ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/.eslintcache
 
 # Project-specific (macd-grades)
 macd-grades/.venv/
 macd-grades/data/
-
+ui/public/macd-grades/

@@ -17,6 +17,9 @@ export default function Overview() {
   const [err, setErr] = useState(null);
   const [universes, setUniverses] = useState(null);
   const [symbolsCfg, setSymbolsCfg] = useState(null); // contents of macd-grades/meta/symbols.json
+  const [copyMsg, setCopyMsg] = useState("");
+  const [genStatus, setGenStatus] = useState(null); // dev-only generator status
+  const [hasDevApi, setHasDevApi] = useState(false);
 
   // Filters
   const [matchAll, setMatchAll] = useState(false);        // D/W/M all same grade
@@ -53,6 +56,36 @@ export default function Overview() {
       }
     })();
   }, [BASE]);
+
+  // Dev-only: detect dev-api and then poll status; avoid spamming proxy logs when unavailable
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    let timer = null;
+    let stopped = false;
+    const poll = async () => {
+      // timeout controller
+      const ac = new AbortController();
+      const tid = setTimeout(() => ac.abort(), 800);
+      try {
+        const r = await fetch('/api/status', { signal: ac.signal });
+        clearTimeout(tid);
+        if (r.ok) {
+          setHasDevApi(true);
+          setGenStatus(await r.json());
+          if (!stopped) timer = setTimeout(poll, 2000);
+          return;
+        }
+      } catch {
+        clearTimeout(tid);
+      }
+      // unavailable
+      setHasDevApi(false);
+      setGenStatus(null);
+    };
+    // initial probe
+    poll();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -91,7 +124,11 @@ export default function Overview() {
       const dw = intervals?.D?.current_strike ?? null;
       const ww = intervals?.W?.current_strike ?? null;
       const mw = intervals?.M?.current_strike ?? null;
-      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw };
+      const market = intervals?.market || null;
+      const currency = market?.currency ?? null;
+      const mcapLocal = (typeof market?.mcap_local === 'number') ? market.mcap_local : null;
+      const mcapUSD = (typeof market?.mcap_usd === 'number') ? market.mcap_usd : null;
+      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw, currency, mcapLocal, mcapUSD };
     });
 
     // Include watchlist items even if not generated (mark as missing)
@@ -126,6 +163,7 @@ export default function Overview() {
     };
 
     const strikeRank = (n) => (n == null ? 1e9 : Number(n));
+    const numRank = (n) => (n == null || Number.isNaN(Number(n)) ? Number.POSITIVE_INFINITY : Number(n));
 
     const sorted = entries
       .filter(r => (query.trim() ? r.sym.toLowerCase().includes(query.trim().toLowerCase()) : true))
@@ -148,6 +186,7 @@ export default function Overview() {
           let cmp = 0;
           if (s.key === 'SYM') cmp = a.sym.localeCompare(b.sym);
           else if (s.key === 'StrikeW') cmp = strikeRank(a.Ww) - strikeRank(b.Ww);
+          else if (s.key === 'MCAP') cmp = numRank(a.mcapUSD) - numRank(b.mcapUSD);
           else if (s.key === 'D' || s.key === 'W' || s.key === 'M') cmp = gradeRank(a[s.key]) - gradeRank(b[s.key]);
           if (cmp !== 0) return s.dir === 'asc' ? cmp : -cmp;
         }
@@ -158,6 +197,51 @@ export default function Overview() {
 
   const pushSort = (key, dir) => setSortStack(prev => [{key,dir}, ...prev.filter(s => s.key !== key)]);
   const clearSorts = () => setSortStack([]);
+
+  const copyView = async () => {
+    try {
+      const lines = rows.map(r => {
+        const d = r.D ?? 'NA';
+        const w = r.W ?? 'NA';
+        const m = r.M ?? 'NA';
+        const strikeW = r.Ww != null ? `${r.Ww}w` : '-';
+        return `${r.sym}\t${d} ${w} ${m}\t${strikeW}`;
+      });
+      const txt = lines.join("\n");
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(txt);
+      } else {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopyMsg(`Copied ${rows.length} rows`);
+      setTimeout(() => setCopyMsg(""), 2000);
+    } catch (e) {
+      setCopyMsg("Copy failed");
+      setTimeout(() => setCopyMsg(""), 2000);
+    }
+  };
+
+  function formatCurrencyShort(value, currency) {
+    if (value == null || !Number.isFinite(Number(value))) return '–';
+    const n = Number(value);
+    const abs = Math.abs(n);
+    let unit = '';
+    let div = 1;
+    if (abs >= 1e12) { unit = 'T'; div = 1e12; }
+    else if (abs >= 1e9) { unit = 'B'; div = 1e9; }
+    else if (abs >= 1e6) { unit = 'M'; div = 1e6; }
+    else if (abs >= 1e3) { unit = 'K'; div = 1e3; }
+    const val = n / div;
+    const nf = new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 1, minimumFractionDigits: 0 });
+    // Strip decimal .0 for cleanliness in some locales
+    return nf.format(val) + unit;
+  }
 
   const groupsDist = useMemo(() => {
     const base = () => ({ D: { A: 0, B: 0, C: 0, D: 0, NA: 0 }, W: { A: 0, B: 0, C: 0, D: 0, NA: 0 }, M: { A: 0, B: 0, C: 0, D: 0, NA: 0 } });
@@ -255,6 +339,17 @@ export default function Overview() {
           </div>
 
           <div className="filters">
+            {import.meta.env.DEV && (
+              <button
+                className="input mono"
+                onClick={async () => {
+                  try { await fetch('/api/generate', { method: 'POST' }); } catch {}
+                }}
+                disabled={!hasDevApi || genStatus?.running}
+                title={hasDevApi ? 'Run Python generator (dev only)' : 'Start: npm run dev:api'}
+              >{hasDevApi ? (genStatus?.running ? 'Running…' : 'Run Generator') : 'Run Generator (start dev-api)'}
+              </button>
+            )}
             <select className="select mono" value={universeFilter} onChange={(e)=>setUniverseFilter(e.target.value)}>
               {['All','HSI','SPX','NDX','DJI','Watchlist'].map(k => (
                 <option key={k} value={k}>{k}</option>
@@ -263,6 +358,8 @@ export default function Overview() {
 
             <button className="input mono" onClick={addToWatchlist} title="Add to local watchlist">+ Add</button>
             <button className="input mono" onClick={clearSorts} title="Clear sort stack">Clear Sorts</button>
+            <button className="input mono" onClick={copyView} title="Copy current rows (sorted/filtered)">Copy View</button>
+            {copyMsg ? (<span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{copyMsg}</span>) : null}
           </div>
         </div>
       </div>
@@ -280,6 +377,15 @@ export default function Overview() {
                     <span className="sort">
                       <button className="sort-btn" title="Ticker A→Z" onClick={()=>pushSort('SYM','asc')}>▲</button>
                       <button className="sort-btn" title="Ticker Z→A" onClick={()=>pushSort('SYM','desc')}>▼</button>
+                    </span>
+                  </div>
+                </th>
+                <th className="mono">
+                  <div className="th-sort">
+                    <span>Mkt Cap</span>
+                    <span className="sort">
+                      <button className="sort-btn" title="Mkt Cap ↑ (USD)" onClick={()=>pushSort('MCAP','asc')}>▲</button>
+                      <button className="sort-btn" title="Mkt Cap ↓ (USD)" onClick={()=>pushSort('MCAP','desc')}>▼</button>
                     </span>
                   </div>
                 </th>
@@ -325,6 +431,9 @@ export default function Overview() {
               {rows.map((r) => (
                 <tr key={r.sym}>
                   <td className="mono"><Link to={`/s/${encodeURIComponent(r.sym)}`}>{r.sym}</Link></td>
+                  <td className="mono" title={r.mcapUSD != null ? `USD ${r.mcapUSD.toLocaleString()}` : ''}>
+                    {formatCurrencyShort(r.mcapLocal, r.currency)}
+                  </td>
                   {(["D","W","M"]).map(k => (
                     <td key={k}>
                       <div className={`grade-box ${(r[k] ?? 'NA')}`}>{r[k] ?? 'NA'}</div>
@@ -351,6 +460,22 @@ export default function Overview() {
         )}
       </div>
       </div>
+      {import.meta.env.DEV && hasDevApi && (
+        <div className="card" style={{ marginTop: 8 }}>
+          <div className="mono" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+            Dev generator status (local only)
+          </div>
+          <div className="mono" style={{ fontSize: 12 }}>
+            {genStatus?.running ? 'Running' : 'Idle'}
+            {genStatus?.startedAt ? <> · started {genStatus.startedAt}</> : null}
+            {genStatus?.pid ? <> · pid {genStatus.pid}</> : null}
+            {genStatus && genStatus.exitCode != null ? <> · last exit {genStatus.exitCode}</> : null}
+          </div>
+          <pre className="pre" style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+            {(genStatus?.logs || []).join('\n')}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
