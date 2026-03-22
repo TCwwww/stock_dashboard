@@ -5,6 +5,7 @@ import SymbolDetail from "./pages/SymbolDetail.jsx";
 import Distribution from "./pages/Distribution.jsx";
 import Matrix from "./pages/Matrix.jsx";
 import Economics from "./pages/Economics.jsx";
+import EN3 from "./pages/EN3.jsx";
 
 export default function App() {
   const BASE = import.meta.env.BASE_URL;
@@ -20,6 +21,7 @@ export default function App() {
 
           <nav className="nav">
             <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>Overview</NavLink>
+            <NavLink to="/en3" className={({ isActive }) => (isActive ? "active" : "")}>EN3</NavLink>
             <NavLink to="/dist" className={({ isActive }) => (isActive ? "active" : "")}>Distribution</NavLink>
             <NavLink to="/matrix" className={({ isActive }) => (isActive ? "active" : "")}>Matrix</NavLink>
             <NavLink to="/economics" className={({ isActive }) => (isActive ? "active" : "")}>Economics</NavLink>
@@ -30,6 +32,7 @@ export default function App() {
       <main className="container">
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/en3" element={<EN3 />} />
           <Route path="/dist" element={<Distribution />} />
           <Route path="/matrix" element={<Matrix />} />
           <Route path="/economics" element={<Economics />} />

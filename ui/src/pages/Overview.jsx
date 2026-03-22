@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 const GRADE_ORDER = ["A", "B", "C", "D"];
+const MCAP_FILTERS = [
+  { value: "0", label: "Any size" },
+  { value: "1000000000", label: "US$1B+" },
+  { value: "10000000000", label: "US$10B+" },
+  { value: "50000000000", label: "US$50B+" },
+];
 
 function gradeClass(g) {
   if (g === "A") return "bg-green";
@@ -27,7 +33,8 @@ export default function Overview() {
   const [dailyGrade, setDailyGrade] = useState("");       // "A" | "B" | "C" | "D" | ""
   const [query, setQuery] = useState("");                 // symbol substring
   const [universeFilter, setUniverseFilter] = useState("All"); // All | HSI | SPX | NDX | DJI | Watchlist
-  const [sortStack, setSortStack] = useState([]); // e.g., [{key:'W',dir:'asc'},{key:'SYM',dir:'desc'}]
+  const [minMcapFilter, setMinMcapFilter] = useState("1000000000");
+  const [sortStack, setSortStack] = useState([{ key: "SYM", dir: "asc" }]); // e.g., [{key:'W',dir:'asc'},{key:'SYM',dir:'desc'}]
 
   // Watchlist stored in localStorage
   const [watchlist, setWatchlist] = useState(() => {
@@ -134,15 +141,7 @@ export default function Overview() {
       const currency = market?.currency ?? null;
       const mcapLocal = (typeof market?.mcap_local === 'number') ? market.mcap_local : null;
       const mcapUSD = (typeof market?.mcap_usd === 'number') ? market.mcap_usd : null;
-      const rs = intervals?.rs || null;
-      const rsPct13 = (typeof rs?.pct?.w13 === 'number') ? rs.pct.w13 : null;
-      const rsPct4 = (typeof rs?.pct?.w4 === 'number') ? rs.pct.w4 : null;
-      const rsPct26 = (typeof rs?.pct?.w26 === 'number') ? rs.pct.w26 : null;
-      const rsSlope4 = (typeof rs?.slope?.w4 === 'number') ? rs.slope.w4 : null;
-      const rsSlope13 = (typeof rs?.slope?.w13 === 'number') ? rs.slope.w13 : null;
-      const rsSlope26 = (typeof rs?.slope?.w26 === 'number') ? rs.slope.w26 : null;
-      const rsUni = typeof rs?.universe === 'string' ? rs.universe : null;
-      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw, currency, mcapLocal, mcapUSD, rsPct13, rsPct4, rsPct26, rsSlope4, rsSlope13, rsSlope26, rsUni };
+      return { sym, D: d, W: w, M: m, Ds: ds, Ws: ws, Ms: ms, Dw: dw, Ww: ww, Mw: mw, currency, mcapLocal, mcapUSD };
     });
 
     // Include watchlist items even if not generated (mark as missing)
@@ -178,10 +177,12 @@ export default function Overview() {
 
     const strikeRank = (n) => (n == null ? 1e9 : Number(n));
     const numRank = (n) => (n == null || Number.isNaN(Number(n)) ? Number.POSITIVE_INFINITY : Number(n));
+    const minMcap = Number(minMcapFilter || 0);
 
     const sorted = entries
       .filter(r => (query.trim() ? r.sym.toLowerCase().includes(query.trim().toLowerCase()) : true))
       .filter(r => (dailyGrade ? r.D === dailyGrade : true))
+      .filter(r => (minMcap > 0 ? (r.mcapUSD != null && r.mcapUSD >= minMcap) : true))
       .filter(r => {
         if (universeFilter === "All") return true;
         if (universeFilter === "Watchlist") return wl.includes(r.sym);
@@ -201,17 +202,29 @@ export default function Overview() {
           if (s.key === 'SYM') cmp = a.sym.localeCompare(b.sym);
           else if (s.key === 'StrikeW') cmp = strikeRank(a.Ww) - strikeRank(b.Ww);
           else if (s.key === 'MCAP') cmp = numRank(a.mcapUSD) - numRank(b.mcapUSD);
-          else if (s.key === 'RS13') cmp = numRank(a.rsPct13) - numRank(b.rsPct13);
           else if (s.key === 'D' || s.key === 'W' || s.key === 'M') cmp = gradeRank(a[s.key]) - gradeRank(b[s.key]);
           if (cmp !== 0) return s.dir === 'asc' ? cmp : -cmp;
         }
         return a.sym.localeCompare(b.sym);
       });
     return sorted;
-  }, [meta, universes, watchlist, sortStack]);
+  }, [meta, universes, watchlist, symbolsCfg, query, dailyGrade, universeFilter, matchAll, tripleGrade, minMcapFilter, sortStack]);
 
   const pushSort = (key, dir) => setSortStack(prev => [{key,dir}, ...prev.filter(s => s.key !== key)]);
-  const clearSorts = () => setSortStack([]);
+  const clearSorts = () => setSortStack([{ key: "SYM", dir: "asc" }]);
+
+  const writeClipboard = async (txt) => {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(txt);
+      return;
+    }
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  };
 
   const copyView = async () => {
     try {
@@ -223,17 +236,7 @@ export default function Overview() {
         return `${r.sym}\t${d} ${w} ${m}\t${strikeW}`;
       });
       const txt = lines.join("\n");
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(txt);
-      } else {
-        // Fallback
-        const ta = document.createElement('textarea');
-        ta.value = txt;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+      await writeClipboard(txt);
       setCopyMsg(`Copied ${rows.length} rows`);
       setTimeout(() => setCopyMsg(""), 2000);
     } catch (e) {
@@ -256,6 +259,12 @@ export default function Overview() {
     const nf = new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD', maximumFractionDigits: 1, minimumFractionDigits: 0 });
     // Strip decimal .0 for cleanliness in some locales
     return nf.format(val) + unit;
+  }
+
+  function formatMarketCap(row) {
+    if (row.mcapLocal != null) return formatCurrencyShort(row.mcapLocal, row.currency);
+    if (row.mcapUSD != null) return formatCurrencyShort(row.mcapUSD, "USD");
+    return "–";
   }
 
   const groupsDist = useMemo(() => {
@@ -377,6 +386,33 @@ export default function Overview() {
             {copyMsg ? (<span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>{copyMsg}</span>) : null}
           </div>
         </div>
+        <div className="filters" style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            className="input mono"
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find symbol"
+            style={{ minWidth: 140 }}
+          />
+          <select className="select mono" value={minMcapFilter} onChange={(e) => setMinMcapFilter(e.target.value)} title="Filter by minimum market cap (USD)">
+            {MCAP_FILTERS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <select className="select mono" value={dailyGrade} onChange={(e) => setDailyGrade(e.target.value)} title="Filter by daily grade">
+            <option value="">Any D grade</option>
+            {GRADE_ORDER.map((g) => <option key={g} value={g}>D = {g}</option>)}
+          </select>
+          <select className="select mono" value={tripleGrade} onChange={(e) => setTripleGrade(e.target.value)} title="Require D/W/M all equal to one grade">
+            <option value="">Any alignment</option>
+            {GRADE_ORDER.map((g) => <option key={g} value={g}>D/W/M = {g}</option>)}
+          </select>
+          <label className="mono" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={matchAll} onChange={(e) => setMatchAll(e.target.checked)} />
+            D/W/M match
+          </label>
+        </div>
       </div>
 
       {/* Scanner layout: table only; distribution moved to /dist */}
@@ -392,15 +428,6 @@ export default function Overview() {
                     <span className="sort">
                       <button className="sort-btn" title="Ticker A→Z" onClick={()=>pushSort('SYM','asc')}>▲</button>
                       <button className="sort-btn" title="Ticker Z→A" onClick={()=>pushSort('SYM','desc')}>▼</button>
-                    </span>
-                  </div>
-                </th>
-                <th className="mono">
-                  <div className="th-sort">
-                    <span>RS 13w</span>
-                    <span className="sort">
-                      <button className="sort-btn" title="RS 13w ↑ (percentile)" onClick={()=>pushSort('RS13','asc')}>▲</button>
-                      <button className="sort-btn" title="RS 13w ↓ (percentile)" onClick={()=>pushSort('RS13','desc')}>▼</button>
                     </span>
                   </div>
                 </th>
@@ -455,11 +482,8 @@ export default function Overview() {
               {rows.map((r) => (
                 <tr key={r.sym}>
                   <td className="mono"><Link to={`/s/${encodeURIComponent(r.sym)}`}>{r.sym}</Link></td>
-                  <td className="mono" title={r.rsPct13 != null ? `RS pct (4/13/26w): ${Math.round(r.rsPct4 ?? NaN)} / ${Math.round(r.rsPct13)} / ${Math.round(r.rsPct26 ?? NaN)}` : ''}>
-                    {r.rsPct13 != null ? `${Math.round(r.rsPct13)}p` : '–'}
-                  </td>
                   <td className="mono" title={r.mcapUSD != null ? `USD ${r.mcapUSD.toLocaleString()}` : ''}>
-                    {formatCurrencyShort(r.mcapLocal, r.currency)}
+                    {formatMarketCap(r)}
                   </td>
                   {(["D","W","M"]).map(k => (
                     <td key={k}>
