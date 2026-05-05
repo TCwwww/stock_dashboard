@@ -532,6 +532,162 @@ def _attach_weekly_scores(summary: dict) -> None:
         sym_summary["selection"] = {"weekly_score": _compute_weekly_score_entry(sym_summary)}
 
 
+def _grade_bucket_counts(rows: list[dict], interval: str) -> dict:
+    counts = {"A": 0, "B": 0, "C": 0, "D": 0, "NA": 0}
+    for row in rows:
+        grade = row.get(interval)
+        if grade in counts:
+            counts[grade] += 1
+        else:
+            counts["NA"] += 1
+    total = sum(v for k, v in counts.items() if k != "NA")
+    bullish = counts["A"] + counts["B"]
+    bearish = counts["C"] + counts["D"]
+    return {
+        "counts": counts,
+        "valid": total,
+        "bullish_pct": round((bullish / total) * 100.0, 1) if total else None,
+        "bearish_pct": round((bearish / total) * 100.0, 1) if total else None,
+        "a_pct": round((counts["A"] / total) * 100.0, 1) if total else None,
+    }
+
+
+def _research_row(sym: str, sym_summary: dict, symbol_universe: dict[str, str]) -> dict:
+    w_entry = sym_summary.get("W") if isinstance(sym_summary.get("W"), dict) else {}
+    transition = w_entry.get("transition") if isinstance(w_entry.get("transition"), dict) else {}
+    change = w_entry.get("change") if isinstance(w_entry.get("change"), dict) else {}
+    market = sym_summary.get("market") if isinstance(sym_summary.get("market"), dict) else {}
+    rs = sym_summary.get("rs") if isinstance(sym_summary.get("rs"), dict) else {}
+    selection = sym_summary.get("selection") if isinstance(sym_summary.get("selection"), dict) else {}
+    weekly_score = selection.get("weekly_score") if isinstance(selection.get("weekly_score"), dict) else {}
+    return {
+        "symbol": sym,
+        "universe": (rs.get("universe") if isinstance(rs, dict) else None) or symbol_universe.get(sym),
+        "D": (sym_summary.get("D") or {}).get("current_grade") if isinstance(sym_summary.get("D"), dict) else None,
+        "W": (sym_summary.get("W") or {}).get("current_grade") if isinstance(sym_summary.get("W"), dict) else None,
+        "M": (sym_summary.get("M") or {}).get("current_grade") if isinstance(sym_summary.get("M"), dict) else None,
+        "weeks_same": transition.get("weeks_same"),
+        "transition": transition.get("transition"),
+        "previous_distinct_grade": transition.get("previous_distinct_grade"),
+        "w1_pct": change.get("w1_pct"),
+        "w4_pct": change.get("w4_pct"),
+        "w1_rank_pct": change.get("w1_rank_pct"),
+        "w4_rank_pct": change.get("w4_rank_pct"),
+        "rs13_pct": ((rs.get("pct") or {}).get("w13")) if isinstance(rs, dict) else None,
+        "rs4_slope": ((rs.get("slope") or {}).get("w4")) if isinstance(rs, dict) else None,
+        "score": weekly_score.get("value"),
+        "tier": weekly_score.get("tier"),
+        "mcap_usd": market.get("mcap_usd") if isinstance(market, dict) else None,
+        "currency": market.get("currency") if isinstance(market, dict) else None,
+    }
+
+
+def _num_desc(value: object) -> float:
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return float(value)
+    return float("-inf")
+
+
+def _build_research_dashboard(summary: dict, symbol_universe: dict[str, str]) -> dict:
+    rows = [
+        _research_row(sym, sym_summary, symbol_universe)
+        for sym, sym_summary in (summary.get("symbols") or {}).items()
+        if isinstance(sym_summary, dict)
+    ]
+
+    def top(items: list[dict], limit: int = 25) -> list[dict]:
+        return items[:limit]
+
+    leaders = sorted(
+        [
+            r for r in rows
+            if r.get("W") == "A"
+            and r.get("M") in ("A", "B")
+            and _num_desc(r.get("score")) >= 80
+            and _num_desc(r.get("rs13_pct")) >= 65
+        ],
+        key=lambda r: (_num_desc(r.get("score")), _num_desc(r.get("rs13_pct")), _num_desc(r.get("mcap_usd"))),
+        reverse=True,
+    )
+    upgrades = sorted(
+        [r for r in rows if r.get("transition") in ("B→A", "C→A", "D→A")],
+        key=lambda r: (_num_desc(r.get("score")), _num_desc(r.get("w4_rank_pct")), _num_desc(r.get("mcap_usd"))),
+        reverse=True,
+    )
+    pullbacks = sorted(
+        [
+            r for r in rows
+            if r.get("M") == "A"
+            and r.get("W") == "A"
+            and r.get("D") in ("C", "D")
+            and _num_desc(r.get("score")) >= 65
+        ],
+        key=lambda r: (_num_desc(r.get("score")), _num_desc(r.get("rs13_pct")), _num_desc(r.get("mcap_usd"))),
+        reverse=True,
+    )
+    risk_off = sorted(
+        [r for r in rows if r.get("transition") in ("A→B", "A→C", "A→D") or (r.get("W") == "D" and r.get("D") == "D")],
+        key=lambda r: (_num_desc(r.get("mcap_usd")), _num_desc(r.get("score"))),
+        reverse=True,
+    )
+
+    universe_names = sorted({r.get("universe") for r in rows if r.get("universe")} | {"All"})
+    breadth = []
+    for universe in universe_names:
+        group = rows if universe == "All" else [r for r in rows if r.get("universe") == universe]
+        if not group:
+            continue
+        breadth.append(
+            {
+                "universe": universe,
+                "symbols": len(group),
+                "D": _grade_bucket_counts(group, "D"),
+                "W": _grade_bucket_counts(group, "W"),
+                "M": _grade_bucket_counts(group, "M"),
+            }
+        )
+
+    missing_market = [r["symbol"] for r in rows if r.get("mcap_usd") is None]
+    missing_rs = [r["symbol"] for r in rows if r.get("rs13_pct") is None]
+    failed_symbols = summary.get("failed_symbols") if isinstance(summary.get("failed_symbols"), list) else []
+
+    return {
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_updated_at_utc": summary.get("updated_at_utc"),
+        "purpose": "Decision support for discretionary/systematic research. No brokerage execution or order placement.",
+        "model": {
+            "name": "research_dashboard_v1",
+            "notes": [
+                "Candidates are ranked from existing D/W/M MACD grades, weekly transitions, relative strength, weekly score, and market cap.",
+                "Human approval is required before any trading decision.",
+                "System output is a monitoring and research log, not a trading instruction.",
+            ],
+        },
+        "breadth": breadth,
+        "candidates": {
+            "momentum_leaders": top(leaders),
+            "fresh_upgrades": top(upgrades),
+            "pullback_watch": top(pullbacks),
+            "risk_off": top(risk_off),
+        },
+        "monitor": {
+            "failed_symbols": failed_symbols,
+            "missing_market_count": len(missing_market),
+            "missing_market_sample": missing_market[:25],
+            "missing_rs_count": len(missing_rs),
+            "missing_rs_sample": missing_rs[:25],
+        },
+        "audit_log": [
+            {
+                "t": datetime.now(timezone.utc).isoformat(),
+                "event": "research_dashboard_generated",
+                "symbols": len(rows),
+                "failed_symbols": len(failed_symbols),
+            }
+        ],
+    }
+
+
 def fetch_daily_close(symbol: str, years: int) -> pd.DataFrame:
     # Fetch enough history for monthly/weekly EMAs to stabilise
     period = f"{years}y"
@@ -928,6 +1084,7 @@ def main(refresh_market_cache: bool = False) -> None:
     meta_path = root / "meta" / "symbols.json"
     data_root = root / "data"
     meta_out = root / "meta" / "last_updated.json"
+    research_out = root / "meta" / "research_dashboard.json"
     market_cache_path = root / "meta" / "market_cache.json"
     failed_cache_path = root / "meta" / "failed_symbols_cache.json"
 
@@ -1172,6 +1329,7 @@ def main(refresh_market_cache: bool = False) -> None:
     _attach_weekly_change_ranks(summary, symbol_universe)
     _attach_weekly_scores(summary)
     write_json(meta_out, summary)
+    write_json(research_out, _build_research_dashboard(summary, symbol_universe))
     write_json(
         market_cache_path,
         {
@@ -1258,6 +1416,7 @@ def main(refresh_market_cache: bool = False) -> None:
         # Persist updated summary with RS and weekly selection scores
         _attach_weekly_scores(summary)
         write_json(meta_out, summary)
+        write_json(research_out, _build_research_dashboard(summary, symbol_universe))
         write_json(
             market_cache_path,
             {
@@ -1291,7 +1450,7 @@ def main(refresh_market_cache: bool = False) -> None:
     # Escape braces to show literal {D,W,M} in f-string
     print(
         f"\n[✓] Done {completed}/{total} symbols in {_fmt_dur(total_elapsed)} (failed: {len(failed)}). "
-        f"Wrote data/<symbol>/{{D,W,M}}.json and meta/last_updated.json",
+        f"Wrote data/<symbol>/{{D,W,M}}.json, meta/last_updated.json, and meta/research_dashboard.json",
         flush=True,
     )
 
