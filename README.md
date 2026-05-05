@@ -19,8 +19,17 @@ macd-grades/.venv/bin/python macd-grades/generate_data.py
 Outputs:
 - `macd-grades/data/<SYMBOL>/{D,W,M}.json`
 - `macd-grades/meta/last_updated.json`
+- `macd-grades/meta/research_dashboard.json`
 
 The script prints current grades and since-dates for a quick sanity check.
+
+## Research dashboard layer
+The project now keeps the original scanner data contract and adds a derived research artifact:
+
+- Python calculates `research_dashboard.json` from grades, weekly transitions, relative strength, weekly scores, market caps, and data quality signals.
+- React displays the artifact at `/research`.
+- The page is for monitoring and research only. It does not connect to a broker, place orders, or approve trades.
+- New frontend file: `ui/src/pages/Research.jsx`.
 
 ## 2) Run the UI locally (frontend)
 From repo root:
@@ -64,4 +73,3 @@ macd-grades/.venv/bin/python -c "import sys; print(sys.executable)"
 macd-grades/.venv/bin/pip --version
 ```
 Both should point inside `macd-grades/.venv`.
-
